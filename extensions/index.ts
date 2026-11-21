@@ -9,7 +9,7 @@
  * │ π hello world                                                                          │
  * ╰─────────────────────────────────────────────────── T5 · 0.015$ · OUT 8.3K ─────────────╯
  *
- * Layout is controlled by ~/.pi/pi-input-revamp.json:
+ * Layout is controlled by ~/.pi/agent/pi-input-revamp.json:
  *
  *   {
  *     "layout": {
@@ -97,7 +97,7 @@ function writeDefaultConfig(path: string): void {
 function loadConfig(): InputRevampConfig {
   try {
     const home = process.env.HOME || process.env.USERPROFILE || "";
-    const configPath = `${home}/.pi/pi-input-revamp.json`;
+    const configPath = `${home}/.pi/agent/pi-input-revamp.json`;
     if (existsSync(configPath)) {
       const raw = readFileSync(configPath, "utf8");
       const parsed = JSON.parse(raw) as Partial<InputRevampConfig>;

@@ -34,7 +34,7 @@ Or via `settings.json`:
 
 ## Configuration
 
-The layout and animations are driven by `~/.pi/pi-input-revamp.json`. The file is
+The layout and animations are driven by `~/.pi/agent/pi-input-revamp.json`. The file is
 created with the defaults on first run, so you can just edit it. Missing fields
 fall back to the defaults, and changes are picked up on the next pi restart.
 
