@@ -299,11 +299,7 @@ function fitRoundedBorder(
 }
 
 function formatCwd(cwd: string): string {
-  const home = process.env.HOME;
-  if (home && cwd.startsWith(home)) {
-    return `~${cwd.slice(home.length)}`;
-  }
-  return cwd;
+  return cwd.split("/").filter(Boolean).pop() ?? "/";
 }
 
 /** Formats a duration in seconds → "5m 12s" or "1h 23m". */
@@ -761,9 +757,9 @@ class NerismaInputEditor extends CustomEditor {
         return { text: agent, ansi: accentAnsi };
       }
       case "model": {
-        const model = ctx.model as { provider?: string; id?: string } | undefined;
-        if (!model?.provider || !model?.id) return null;
-        return { text: `${model.provider}/${model.id}`, ansi: accentAnsi };
+        const name = (ctx.model as { name?: string } | undefined)?.name;
+        if (!name) return null;
+        return { text: name, ansi: accentAnsi };
       }
       case "thinking-level": {
         try {
