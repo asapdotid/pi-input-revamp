@@ -495,11 +495,25 @@ function lerpToWhite(baseAnsi: string, t: number, text: string): string {
   return `${open}${text}\x1b[39m`;
 }
 
+/** Colors `text` with HSL (h in degrees, s/l 0..1), emitted in the same mode as `modeAnsi`. */
+function hslFgAnsi(modeAnsi: string, h: number, sat: number, l: number, text: string): string {
+  const a = sat * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  const [r, g, b] = [f(0), f(8), f(4)];
+  const open = parseFgAnsi(modeAnsi)?.mode === "256"
+    ? `\x1b[38;5;${rgbTo256(r, g, b)}m`
+    : `\x1b[38;2;${r};${g};${b}m`;
+  return `${open}${text}\x1b[39m`;
+}
+
 interface AnimColors {
-  /** accent lightened (amount>0) or darkened (amount<0) by `amount` per RGB channel */
-  shade: (s: string, amount: number) => string;
-  /** brightness offset of the global pulse (oscillates with the sine, ~ -50..+50) */
-  pulseOffset: number;
+  /** rainbow color: hue in degrees, lightness 0..1 */
+  rainbow: (s: string, hue: number, light: number) => string;
+  /** global pulse (-1..1, sine) that makes the whole cluster breathe */
+  pulse: number;
 }
 
 /**
@@ -512,8 +526,9 @@ function renderThinkingGlyphs(elapsed: number, c: AnimColors): string {
   for (let i = 0; i < 5; i++) {
     const t = (Math.sin(elapsed / 150 + i * 0.9) + 1) / 2; // 0..1, phase-shifted
     const lvl = Math.round(t * (bars.length - 1));
-    // height (lvl*6) + global pulse that makes the whole bar breathe
-    out += c.shade(bars[lvl], lvl * 6 + c.pulseOffset);
+    // hue scrolls over time and across bars; taller bar = lighter; pulse breathes
+    const hue = (elapsed / 8 + i * 40) % 360;
+    out += c.rainbow(bars[lvl], hue, 0.55 + t * 0.12 + c.pulse * 0.06);
   }
   return out;
 }
@@ -759,13 +774,13 @@ class NerismaInputEditor extends CustomEditor {
       case "model": {
         const name = (ctx.model as { name?: string } | undefined)?.name;
         if (!name) return null;
-        return { text: name, ansi: accentAnsi };
+        return { text: name, ansi: thm.getFgAnsi("syntaxType") };
       }
       case "thinking-level": {
         try {
           const level = pi.getThinkingLevel();
           if (!level || level === "off") return null;
-          return { text: level, ansi: thm.getFgAnsi("syntaxFunction") };
+          return { text: level, ansi: thm.getFgAnsi("thinking" + level[0].toUpperCase() + level.slice(1)) };
         } catch {
           return null;
         }
@@ -777,19 +792,19 @@ class NerismaInputEditor extends CustomEditor {
       }
       case "duration": {
         if (sessionElapsed <= 0) return null;
-        return { text: formatDuration(sessionElapsed), ansi: dimAnsi };
+        return { text: formatDuration(sessionElapsed), ansi: thm.getFgAnsi("syntaxString") };
       }
       case "tools": {
-        return { text: `${toolCount} tools`, ansi: thm.getFgAnsi("muted") };
+        return { text: `${toolCount} tools`, ansi: thm.getFgAnsi("syntaxFunction") };
       }
       case "tok": {
         if (tokEstimate <= 0) return null;
         const tokStr = `~${tokEstimate} tok`;
         const tp = this._tokPulse;
         if (this.config.animations.tokPulse && tp > 0.001) {
-          return { text: lerpToWhite(syntaxCommentAnsi, Math.min(1, tp), tokStr), ansi: "", skipPulse: true };
+          return { text: lerpToWhite(syntaxNumberAnsi, Math.min(1, tp), tokStr), ansi: "", skipPulse: true };
         }
-        return { text: tokStr, ansi: syntaxCommentAnsi };
+        return { text: tokStr, ansi: syntaxNumberAnsi };
       }
       case "session-label": {
         return { text: "SESSION", ansi: accentAnsi };
@@ -1132,8 +1147,8 @@ class NerismaInputEditor extends CustomEditor {
       const thinkColor = (s: string) => shadeFgAnsi(accentAnsi, thinkOffset, s);
       const wordStr = ` ${thinkColor(expression)}`;
       const glyphs = renderThinkingGlyphs(elapsed, {
-        shade: (s, amount) => shadeFgAnsi(accentAnsi, amount, s),
-        pulseOffset: thinkOffset,
+        rainbow: (s, hue, light) => hslFgAnsi(accentAnsi, hue, 0.85, light, s),
+        pulse: thinkOffset / 75,
       });
       const animLine = ` ${glyphs}${wordStr}`;
       const animWidth = visibleWidth(animLine);
