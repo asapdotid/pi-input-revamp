@@ -793,7 +793,10 @@ class NerismaInputEditor extends CustomEditor {
       case "git-branch": {
         const branch = footerDataRef?.getGitBranch();
         if (!branch) return null;
-        return { text: branch, ansi: syntaxCommentAnsi };
+        const magentaAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
+          ? `\x1b[38;5;${rgbTo256(255, 0, 255)}m`
+          : "\x1b[38;2;255;0;255m";
+        return { text: branch, ansi: magentaAnsi };
       }
       case "duration": {
         if (sessionElapsed <= 0) return null;
