@@ -38,7 +38,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 // ── Configuration types ──────────────────────────────────
 
 type BuiltinElementId =
-  | "agent" | "model" | "thinking-level" | "cwd"
+  | "agent" | "model" | "thinking-level" | "cwd" | "git-branch"
   | "duration" | "tools" | "tok"
   | "session-label"
   | "ctx-percent" | "ctx-tokens" | "ctx-tokens-max" | "ctx-tokens-full"
@@ -71,7 +71,7 @@ interface InputRevampConfig {
 
 const DEFAULT_CONFIG: InputRevampConfig = {
   layout: {
-    topLeft: ["agent", "model", "thinking-level", "cwd", "duration", "tools", "tok"],
+    topLeft: ["agent", "model", "thinking-level", "cwd", "git-branch", "duration", "tools", "tok"],
     topRight: ["session-label", "ctx-percent", "ctx-tokens-full", "session-cost", "session-out", "session-hit", "session-miss"],
     bottomLeft: [],
     bottomRight: ["turn", "turn-duration", "turn-cost", "turn-out", "turn-hit", "turn-miss"],
@@ -790,6 +790,11 @@ class NerismaInputEditor extends CustomEditor {
         if (!cwd) return null;
         return { text: formatCwd(cwd), ansi: thm.getFgAnsi("muted") };
       }
+      case "git-branch": {
+        const branch = footerDataRef?.getGitBranch();
+        if (!branch) return null;
+        return { text: branch, ansi: syntaxCommentAnsi };
+      }
       case "duration": {
         if (sessionElapsed <= 0) return null;
         return { text: formatDuration(sessionElapsed), ansi: thm.getFgAnsi("syntaxString") };
@@ -1277,13 +1282,14 @@ export default function (pi: ExtensionAPI): void {
     ctx.ui.setWorkingVisible(false);
 
     // Footer fully hidden — but we capture its data provider, the only channel
-    // exposing extension statuses (setStatus) to extension code. The `ext:<key>`
-    // layout slots read it lazily at render time.
-    ctx.ui.setFooter((_tui, _theme, footerData) => {
+    // exposing git branch and extension statuses (setStatus) to extension code.
+    ctx.ui.setFooter((tui, _theme, footerData) => {
       footerDataRef = footerData;
+      const unsub = footerData.onBranchChange(() => tui.requestRender());
       return {
         render() { return []; },
         invalidate() {},
+        dispose: unsub,
       };
     });
 

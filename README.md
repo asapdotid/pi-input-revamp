@@ -41,7 +41,7 @@ fall back to the defaults, and changes are picked up on the next pi restart.
 ```json
 {
   "layout": {
-    "topLeft": ["agent", "model", "thinking-level", "cwd", "duration", "tools", "tok"],
+    "topLeft": ["agent", "model", "thinking-level", "cwd", "git-branch", "duration", "tools", "tok"],
     "topRight": ["session-label", "ctx-percent", "ctx-tokens-full", "session-cost", "session-out", "session-hit", "session-miss"],
     "bottomLeft": [],
     "bottomRight": ["turn", "turn-duration", "turn-cost", "turn-out", "turn-hit", "turn-miss"]
@@ -68,6 +68,7 @@ quadrants simply collapse into the border.
 | `model`            | `provider/id` of the current model                                |
 | `thinking-level`   | Thinking level (hidden when `off`)                                |
 | `cwd`              | Working directory (`$HOME` collapsed to `~`)                      |
+| `git-branch`       | Current git branch (hidden outside a git repo)                    |
 | `duration`         | Elapsed session time (`5m 12s`)                                    |
 | `tools`            | Number of tools actually sent on the last request (`12 tools`)    |
 | `tok`              | Live token estimate of the text you're typing (`~42 tok`)         |
