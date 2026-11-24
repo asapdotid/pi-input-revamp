@@ -34,11 +34,12 @@ import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { KeybindingsManager, ReadonlyFooterDataProvider } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFile } from "node:child_process";
 
 // ── Configuration types ──────────────────────────────────
 
 type BuiltinElementId =
-  | "agent" | "model" | "thinking-level" | "cwd" | "git-branch"
+  | "agent" | "model" | "thinking-level" | "cwd" | "git-branch" | "git-status"
   | "duration" | "tools" | "tok"
   | "session-label"
   | "ctx-percent" | "ctx-tokens" | "ctx-tokens-max" | "ctx-tokens-full"
@@ -73,7 +74,7 @@ const DEFAULT_CONFIG: InputRevampConfig = {
   layout: {
     topLeft: ["agent", "model", "thinking-level", "cwd", "git-branch", "duration", "tools", "tok"],
     topRight: ["session-label", "ctx-percent", "ctx-tokens-full", "session-cost", "session-out", "session-hit", "session-miss"],
-    bottomLeft: [],
+    bottomLeft: ["git-status"],
     bottomRight: ["turn", "turn-duration", "turn-cost", "turn-out", "turn-hit", "turn-miss"],
   },
   animations: {
@@ -300,6 +301,49 @@ function fitRoundedBorder(
 
 function formatCwd(cwd: string): string {
   return cwd.split("/").filter(Boolean).pop() ?? "/";
+}
+
+// ── Git status parsing ────────────────────────────────────
+
+interface GitStatusCounts {
+  staged: number;
+  modified: number;
+  deleted: number;
+  untracked: number;
+  ahead: number;
+  behind: number;
+}
+
+/** Parses `git status --porcelain=v2 --branch -unormal` output into compact counts. */
+export function parseGitStatusPorcelainV2(raw: string): GitStatusCounts | null {
+  let staged = 0, modified = 0, deleted = 0, untracked = 0, ahead = 0, behind = 0;
+
+  for (const line of raw.split("\n")) {
+    if (!line) continue;
+    if (line.startsWith("# branch.ab ")) {
+      const m = line.match(/\+(\d+)\s+-(\d+)/);
+      if (m) {
+        ahead = +m[1];
+        behind = +m[2];
+      }
+    } else if (line.startsWith("1 ") || line.startsWith("2 ")) {
+      const xy = line.slice(2, 4);
+      const x = xy[0];
+      const y = xy[1];
+      if (x && x !== ".") staged++;
+      if (y === "D") deleted++;
+      else if (y && y !== ".") modified++;
+    } else if (line.startsWith("u ")) {
+      modified++;
+    } else if (line.startsWith("? ")) {
+      untracked++;
+    }
+  }
+
+  if (staged === 0 && modified === 0 && deleted === 0 && untracked === 0 && ahead === 0 && behind === 0) {
+    return null;
+  }
+  return { staged, modified, deleted, untracked, ahead, behind };
 }
 
 /** Formats a duration in seconds → "5m 12s" or "1h 23m". */
@@ -608,6 +652,14 @@ class NerismaInputEditor extends CustomEditor {
   private _statusTimer: ReturnType<typeof setInterval> | undefined;
   /** Serialized signature of the last seen extension statuses (change detection). */
   private _lastStatusSig: string = "";
+  /** Polls `git status` in the background when `git-status` is in the layout. */
+  private _gitStatusTimer: ReturnType<typeof setInterval> | undefined;
+  /** Latest parsed git status counts (null when clean or outside a repo). */
+  private _gitStatus: GitStatusCounts | null = null;
+  /** Serialized signature of `_gitStatus` for change detection. */
+  private _lastGitStatusSig: string = "";
+  /** Prevents overlapping `git status` child processes. */
+  private _gitStatusInFlight: boolean = false;
   /** Last tokEstimate value for change detection. */
   private _lastTokValue: number = -1;
   /** Metrics update counter (shown in parentheses after T). */
@@ -644,9 +696,10 @@ class NerismaInputEditor extends CustomEditor {
     // (matches the ~60s refresh rhythm of quota-style extensions) — but only if
     // the layout actually uses an `ext:` slot, otherwise stay fully idle.
     const l = this.config.layout;
-    const usesExtSlots = [...l.topLeft, ...l.topRight, ...l.bottomLeft, ...l.bottomRight]
-      .some((id) => typeof id === "string" && id.startsWith("ext:"));
+    const allSlots = [...l.topLeft, ...l.topRight, ...l.bottomLeft, ...l.bottomRight];
+    const usesExtSlots = allSlots.some((id) => typeof id === "string" && id.startsWith("ext:"));
     if (usesExtSlots) this._startStatusPolling();
+    if (allSlots.includes("git-status")) this._startGitStatusPolling();
   }
 
   dispose() {
@@ -656,6 +709,7 @@ class NerismaInputEditor extends CustomEditor {
     this._stopSubmitAnimation();
     this._stopTokAnimation();
     this._stopStatusPolling();
+    this._stopGitStatusPolling();
   }
 
   /** Snapshot of the extension statuses, stable-sorted, for change detection. */
@@ -683,6 +737,50 @@ class NerismaInputEditor extends CustomEditor {
     if (this._statusTimer) {
       clearInterval(this._statusTimer);
       this._statusTimer = undefined;
+    }
+  }
+
+  refreshGitStatus() {
+    if (!this._gitStatusTimer || this._gitStatusInFlight) return;
+    const cwd = this.ext.ctx.cwd as string | undefined;
+    if (!cwd || footerDataRef?.getGitBranch() === null) {
+      if (this._lastGitStatusSig !== "") {
+        this._gitStatus = null;
+        this._lastGitStatusSig = "";
+        try { (this as any).tui.requestRender(); } catch {}
+      }
+      return;
+    }
+    this._gitStatusInFlight = true;
+    execFile(
+      "git",
+      ["--no-optional-locks", "status", "--porcelain=v2", "--branch", "-unormal"],
+      { cwd, timeout: 2000, maxBuffer: 512 * 1024 },
+      (err, stdout) => {
+        this._gitStatusInFlight = false;
+        const parsed = err ? null : parseGitStatusPorcelainV2(stdout);
+        const sig = parsed
+          ? `${parsed.staged}|${parsed.modified}|${parsed.deleted}|${parsed.untracked}|${parsed.ahead}|${parsed.behind}`
+          : "";
+        if (sig !== this._lastGitStatusSig) {
+          this._gitStatus = parsed;
+          this._lastGitStatusSig = sig;
+          try { (this as any).tui.requestRender(); } catch {}
+        }
+      },
+    );
+  }
+
+  private _startGitStatusPolling() {
+    if (this._gitStatusTimer) return;
+    this._gitStatusTimer = setInterval(() => this.refreshGitStatus(), 3000);
+    this.refreshGitStatus();
+  }
+
+  private _stopGitStatusPolling() {
+    if (this._gitStatusTimer) {
+      clearInterval(this._gitStatusTimer);
+      this._gitStatusTimer = undefined;
     }
   }
 
@@ -797,6 +895,20 @@ class NerismaInputEditor extends CustomEditor {
           ? `\x1b[38;5;${rgbTo256(255, 0, 255)}m`
           : "\x1b[38;2;255;0;255m";
         return { text: branch, ansi: magentaAnsi };
+      }
+      case "git-status": {
+        const gs = this._gitStatus;
+        if (!gs) return null;
+        const chunks: string[] = [];
+        const cyanAnsi = thm.getFgAnsi("syntaxVariable");
+        if (gs.staged > 0) chunks.push(`${successAnsi}+${gs.staged}\x1b[39m`);
+        if (gs.modified > 0) chunks.push(`${warningAnsi}~${gs.modified}\x1b[39m`);
+        if (gs.deleted > 0) chunks.push(`${errorAnsi}-${gs.deleted}\x1b[39m`);
+        if (gs.untracked > 0) chunks.push(`${syntaxCommentAnsi}?${gs.untracked}\x1b[39m`);
+        if (gs.ahead > 0) chunks.push(`${cyanAnsi}↑${gs.ahead}\x1b[39m`);
+        if (gs.behind > 0) chunks.push(`${cyanAnsi}↓${gs.behind}\x1b[39m`);
+        if (chunks.length === 0) return null;
+        return { text: chunks.join(" "), ansi: "", skipPulse: true };
       }
       case "duration": {
         if (sessionElapsed <= 0) return null;
@@ -1270,6 +1382,7 @@ class NerismaInputEditor extends CustomEditor {
 
 export default function (pi: ExtensionAPI): void {
   let registered = false;
+  let activeEditor: NerismaInputEditor | null = null;
   const config = loadConfig();
 
   // Capture (by reference) the tools array packed into each provider request,
@@ -1288,7 +1401,10 @@ export default function (pi: ExtensionAPI): void {
     // exposing git branch and extension statuses (setStatus) to extension code.
     ctx.ui.setFooter((tui, _theme, footerData) => {
       footerDataRef = footerData;
-      const unsub = footerData.onBranchChange(() => tui.requestRender());
+      const unsub = footerData.onBranchChange(() => {
+        activeEditor?.refreshGitStatus();
+        tui.requestRender();
+      });
       return {
         render() { return []; },
         invalidate() {},
@@ -1297,7 +1413,8 @@ export default function (pi: ExtensionAPI): void {
     });
 
     ctx.ui.setEditorComponent((tui, theme, keybindings) => {
-      return new NerismaInputEditor(tui, theme, keybindings, { pi, ctx, config });
+      activeEditor = new NerismaInputEditor(tui, theme, keybindings, { pi, ctx, config });
+      return activeEditor;
     });
   });
 
@@ -1308,5 +1425,6 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("tool_execution_end", () => {
     activeToolName = null;
+    activeEditor?.refreshGitStatus();
   });
 }
