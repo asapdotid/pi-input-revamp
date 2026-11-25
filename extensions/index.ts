@@ -315,7 +315,7 @@ interface GitStatusCounts {
 }
 
 /** Parses `git status --porcelain=v2 --branch -unormal` output into compact counts. */
-export function parseGitStatusPorcelainV2(raw: string): GitStatusCounts | null {
+export function parseGitStatusPorcelainV2(raw: string): GitStatusCounts {
   let staged = 0, modified = 0, deleted = 0, untracked = 0, ahead = 0, behind = 0;
 
   for (const line of raw.split("\n")) {
@@ -340,9 +340,6 @@ export function parseGitStatusPorcelainV2(raw: string): GitStatusCounts | null {
     }
   }
 
-  if (staged === 0 && modified === 0 && deleted === 0 && untracked === 0 && ahead === 0 && behind === 0) {
-    return null;
-  }
   return { staged, modified, deleted, untracked, ahead, behind };
 }
 
@@ -654,12 +651,14 @@ class NerismaInputEditor extends CustomEditor {
   private _lastStatusSig: string = "";
   /** Polls `git status` in the background when `git-status` is in the layout. */
   private _gitStatusTimer: ReturnType<typeof setInterval> | undefined;
-  /** Latest parsed git status counts (null when clean or outside a repo). */
+  /** Latest parsed git status counts (null outside a repo or before first poll). */
   private _gitStatus: GitStatusCounts | null = null;
   /** Serialized signature of `_gitStatus` for change detection. */
   private _lastGitStatusSig: string = "";
   /** Prevents overlapping `git status` child processes. */
   private _gitStatusInFlight: boolean = false;
+  /** Initial working directory captured while ctx is active (safe across timers). */
+  private _cwd: string | undefined;
   /** Last tokEstimate value for change detection. */
   private _lastTokValue: number = -1;
   /** Metrics update counter (shown in parentheses after T). */
@@ -690,6 +689,7 @@ class NerismaInputEditor extends CustomEditor {
     super(tui, theme, keybindings, { paddingX: 0 });
     this.ext = ext;
     this.config = ext.config;
+    this._cwd = ext.ctx.cwd as string | undefined;
 
     // Extension statuses change outside any typing/thinking activity, so the
     // existing animation timers can't surface them. Poll them on a slow cadence
@@ -742,7 +742,7 @@ class NerismaInputEditor extends CustomEditor {
 
   refreshGitStatus() {
     if (!this._gitStatusTimer || this._gitStatusInFlight) return;
-    const cwd = this.ext.ctx.cwd as string | undefined;
+    const cwd = this._cwd;
     if (!cwd || footerDataRef?.getGitBranch() === null) {
       if (this._lastGitStatusSig !== "") {
         this._gitStatus = null;
@@ -758,6 +758,7 @@ class NerismaInputEditor extends CustomEditor {
       { cwd, timeout: 2000, maxBuffer: 512 * 1024 },
       (err, stdout) => {
         this._gitStatusInFlight = false;
+        if (!this._gitStatusTimer) return;
         const parsed = err ? null : parseGitStatusPorcelainV2(stdout);
         const sig = parsed
           ? `${parsed.staged}|${parsed.modified}|${parsed.deleted}|${parsed.untracked}|${parsed.ahead}|${parsed.behind}`
@@ -907,7 +908,9 @@ class NerismaInputEditor extends CustomEditor {
         if (gs.untracked > 0) chunks.push(`${syntaxCommentAnsi}?${gs.untracked}\x1b[39m`);
         if (gs.ahead > 0) chunks.push(`${cyanAnsi}↑${gs.ahead}\x1b[39m`);
         if (gs.behind > 0) chunks.push(`${cyanAnsi}↓${gs.behind}\x1b[39m`);
-        if (chunks.length === 0) return null;
+        if (chunks.length === 0) {
+          return { text: `${successAnsi}✓\x1b[39m`, ansi: "", skipPulse: true };
+        }
         return { text: chunks.join(" "), ansi: "", skipPulse: true };
       }
       case "duration": {
@@ -1381,7 +1384,6 @@ class NerismaInputEditor extends CustomEditor {
 // ── Extension entry point ─────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  let registered = false;
   let activeEditor: NerismaInputEditor | null = null;
   const config = loadConfig();
 
@@ -1391,9 +1393,16 @@ export default function (pi: ExtensionAPI): void {
     lastWirePayloadTools = findToolsArray(event.payload);
   });
 
+  pi.on("session_shutdown", () => {
+    activeEditor?.dispose();
+    activeEditor = null;
+    footerDataRef = null;
+    activeToolName = null;
+  });
+
   pi.on("session_start", (_event, ctx) => {
-    if (registered) return;
-    registered = true;
+    activeEditor?.dispose();
+    activeEditor = null;
 
     ctx.ui.setWorkingVisible(false);
 
@@ -1401,6 +1410,7 @@ export default function (pi: ExtensionAPI): void {
     // exposing git branch and extension statuses (setStatus) to extension code.
     ctx.ui.setFooter((tui, _theme, footerData) => {
       footerDataRef = footerData;
+      activeEditor?.refreshGitStatus();
       const unsub = footerData.onBranchChange(() => {
         activeEditor?.refreshGitStatus();
         tui.requestRender();
@@ -1413,6 +1423,7 @@ export default function (pi: ExtensionAPI): void {
     });
 
     ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+      activeEditor?.dispose();
       activeEditor = new NerismaInputEditor(tui, theme, keybindings, { pi, ctx, config });
       return activeEditor;
     });
