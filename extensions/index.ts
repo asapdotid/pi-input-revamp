@@ -567,9 +567,9 @@ function renderThinkingGlyphs(elapsed: number, c: AnimColors): string {
   for (let i = 0; i < 5; i++) {
     const t = (Math.sin(elapsed / 150 + i * 0.9) + 1) / 2; // 0..1, phase-shifted
     const lvl = Math.round(t * (bars.length - 1));
-    // hue scrolls over time and across bars; taller bar = lighter; pulse breathes
+    // hue scrolls over time and across bars; pastel lightness; pulse breathes
     const hue = (elapsed / 8 + i * 40) % 360;
-    out += c.rainbow(bars[lvl], hue, 0.55 + t * 0.12 + c.pulse * 0.06);
+    out += c.rainbow(bars[lvl], hue, 0.78 + t * 0.08 + c.pulse * 0.04);
   }
   return out;
 }
@@ -887,18 +887,18 @@ class NerismaInputEditor extends CustomEditor {
       case "cwd": {
         const cwd = ctx.cwd as string | undefined;
         if (!cwd) return null;
-        const cyanAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
-          ? `\x1b[38;5;${rgbTo256(0, 255, 255)}m`
-          : "\x1b[38;2;0;255;255m";
-        return { text: formatCwd(cwd), ansi: cyanAnsi };
+        const cwdAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
+          ? `\x1b[38;5;${rgbTo256(129, 166, 198)}m`
+          : "\x1b[38;2;129;166;198m";
+        return { text: formatCwd(cwd), ansi: cwdAnsi };
       }
       case "git-branch": {
         const branch = footerDataRef?.getGitBranch();
         if (!branch) return null;
-        const magentaAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
-          ? `\x1b[38;5;${rgbTo256(255, 0, 255)}m`
-          : "\x1b[38;2;255;0;255m";
-        return { text: branch, ansi: magentaAnsi };
+        const branchAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
+          ? `\x1b[38;5;${rgbTo256(254, 129, 212)}m`
+          : "\x1b[38;2;254;129;212m";
+        return { text: branch, ansi: branchAnsi };
       }
       case "git-status": {
         const gs = this._gitStatus;
@@ -1273,7 +1273,7 @@ class NerismaInputEditor extends CustomEditor {
       const thinkColor = (s: string) => shadeFgAnsi(accentAnsi, thinkOffset, s);
       const wordStr = ` ${thinkColor(expression)}`;
       const glyphs = renderThinkingGlyphs(elapsed, {
-        rainbow: (s, hue, light) => hslFgAnsi(accentAnsi, hue, 0.85, light, s),
+        rainbow: (s, hue, light) => hslFgAnsi(accentAnsi, hue, 0.75, light, s),
         pulse: thinkOffset / 75,
       });
       const animLine = ` ${glyphs}${wordStr}`;
