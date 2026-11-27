@@ -886,7 +886,10 @@ class NerismaInputEditor extends CustomEditor {
       case "cwd": {
         const cwd = ctx.cwd as string | undefined;
         if (!cwd) return null;
-        return { text: formatCwd(cwd), ansi: thm.getFgAnsi("muted") };
+        const cyanAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
+          ? `\x1b[38;5;${rgbTo256(0, 255, 255)}m`
+          : "\x1b[38;2;0;255;255m";
+        return { text: formatCwd(cwd), ansi: cyanAnsi };
       }
       case "git-branch": {
         const branch = footerDataRef?.getGitBranch();
