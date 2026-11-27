@@ -12,7 +12,7 @@ border.
 
 ![pi-input-revamp preview](./preview.gif)
 
-The border and the π use the active theme's `accent` color. Each of the four
+The border and the π use a pastel blue accent. Each of the four
 corners of the border is a **quadrant** you fill with the info elements you want
 — agent, model, cost, context usage, per-turn metrics, and more. By default the
 top bar shows session-wide info and the bottom-right shows the last turn, but the
@@ -120,6 +120,33 @@ so those statuses would be invisible. To surface one, add a slot of the form
 
 You can wire up as many as you like, in any corner — nothing needs to be declared
 beyond the `ext:<statusKey>` entry itself.
+
+### Colors
+
+The editor uses a fixed pastel palette. These are the base truecolor values;
+256-color terminals use approximations, and animations can temporarily change
+colors. Published extension statuses retain their own styling.
+
+| Element or role | Color |
+| --- | --- |
+| Border, π, agent, session label, turn, thinking text | `#A8C8F0` |
+| Model | `#A8E0DB` |
+| Working directory | `#81A6C6` |
+| Git branch | `#FE81D4` |
+| Session duration | `#C7E9C0` |
+| Tools | `#BDA6CE` |
+| Token estimate | `#FFF0DD` |
+| Cost, modified files, missing extension status | `#F9E2AF` |
+| Cache hits, staged files, clean status | `#A6E3A1` |
+| Cache misses, deleted files | `#F38BA8` |
+| Output tokens | `#FAB387` |
+| Untracked files | `#B4BED2` |
+| Context usage, turn duration, separators | `#9CA4B8` |
+| Git ahead/behind | `#A8D8EA` |
+
+Thinking-level colors vary by level: minimal `#C5CEDB`, low `#A8D8EA`,
+medium `#C7CEEA`, high `#E2B6EF`, and xhigh `#FFB3D9`. The thinking
+equalizer uses an animated pastel rainbow.
 
 ### Animations
 
