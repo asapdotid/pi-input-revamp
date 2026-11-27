@@ -536,6 +536,13 @@ function lerpToWhite(baseAnsi: string, t: number, text: string): string {
   return `${open}${text}\x1b[39m`;
 }
 
+/** Formats an RGB color as an ANSI foreground escape matching `modeAnsi` (truecolor or 256). */
+function rgbFgAnsi(modeAnsi: string, r: number, g: number, b: number): string {
+  return parseFgAnsi(modeAnsi)?.mode === "256"
+    ? `\x1b[38;5;${rgbTo256(r, g, b)}m`
+    : `\x1b[38;2;${r};${g};${b}m`;
+}
+
 /** Colors `text` with HSL (h in degrees, s/l 0..1), emitted in the same mode as `modeAnsi`. */
 function hslFgAnsi(modeAnsi: string, h: number, sat: number, l: number, text: string): string {
   const a = sat * Math.min(l, 1 - l);
@@ -873,13 +880,21 @@ class NerismaInputEditor extends CustomEditor {
       case "model": {
         const name = (ctx.model as { name?: string } | undefined)?.name;
         if (!name) return null;
-        return { text: name, ansi: thm.getFgAnsi("syntaxType") };
+        return { text: name, ansi: rgbFgAnsi(accentAnsi, 168, 224, 219) }; // #A8E0DB pastel teal
       }
       case "thinking-level": {
         try {
           const level = pi.getThinkingLevel();
           if (!level || level === "off") return null;
-          return { text: level, ansi: thm.getFgAnsi("thinking" + level[0].toUpperCase() + level.slice(1)) };
+          const levelRgb: Record<string, [number, number, number]> = {
+            minimal: [197, 206, 219], // #C5CEDB pastel slate
+            low: [168, 216, 234],     // #A8D8EA pastel sky
+            medium: [199, 206, 234],  // #C7CEEA pastel periwinkle
+            high: [226, 182, 239],    // #E2B6EF pastel orchid
+            xhigh: [255, 179, 217],   // #FFB3D9 pastel rose
+          };
+          const [r, g, b] = levelRgb[level] ?? [199, 206, 234];
+          return { text: level, ansi: rgbFgAnsi(accentAnsi, r, g, b) };
         } catch {
           return null;
         }
@@ -887,24 +902,18 @@ class NerismaInputEditor extends CustomEditor {
       case "cwd": {
         const cwd = ctx.cwd as string | undefined;
         if (!cwd) return null;
-        const cwdAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
-          ? `\x1b[38;5;${rgbTo256(129, 166, 198)}m`
-          : "\x1b[38;2;129;166;198m";
-        return { text: formatCwd(cwd), ansi: cwdAnsi };
+        return { text: formatCwd(cwd), ansi: rgbFgAnsi(accentAnsi, 129, 166, 198) }; // #81A6C6
       }
       case "git-branch": {
         const branch = footerDataRef?.getGitBranch();
         if (!branch) return null;
-        const branchAnsi = parseFgAnsi(accentAnsi)?.mode === "256"
-          ? `\x1b[38;5;${rgbTo256(254, 129, 212)}m`
-          : "\x1b[38;2;254;129;212m";
-        return { text: branch, ansi: branchAnsi };
+        return { text: branch, ansi: rgbFgAnsi(accentAnsi, 254, 129, 212) }; // #FE81D4
       }
       case "git-status": {
         const gs = this._gitStatus;
         if (!gs) return null;
         const chunks: string[] = [];
-        const cyanAnsi = thm.getFgAnsi("syntaxVariable");
+        const cyanAnsi = rgbFgAnsi(accentAnsi, 168, 216, 234); // #A8D8EA pastel cyan
         if (gs.staged > 0) chunks.push(`${successAnsi}+${gs.staged}\x1b[39m`);
         if (gs.modified > 0) chunks.push(`${warningAnsi}~${gs.modified}\x1b[39m`);
         if (gs.deleted > 0) chunks.push(`${errorAnsi}-${gs.deleted}\x1b[39m`);
@@ -918,19 +927,20 @@ class NerismaInputEditor extends CustomEditor {
       }
       case "duration": {
         if (sessionElapsed <= 0) return null;
-        return { text: formatDuration(sessionElapsed), ansi: thm.getFgAnsi("syntaxString") };
+        return { text: formatDuration(sessionElapsed), ansi: rgbFgAnsi(accentAnsi, 199, 233, 192) }; // #C7E9C0 pastel sage
       }
       case "tools": {
-        return { text: `${toolCount} tools`, ansi: thm.getFgAnsi("syntaxFunction") };
+        return { text: `${toolCount} tools`, ansi: rgbFgAnsi(accentAnsi, 189, 166, 206) }; // #BDA6CE
       }
       case "tok": {
         if (tokEstimate <= 0) return null;
         const tokStr = `~${tokEstimate} tok`;
+        const tokAnsi = rgbFgAnsi(accentAnsi, 255, 240, 221); // #FFF0DD
         const tp = this._tokPulse;
         if (this.config.animations.tokPulse && tp > 0.001) {
-          return { text: lerpToWhite(syntaxNumberAnsi, Math.min(1, tp), tokStr), ansi: "", skipPulse: true };
+          return { text: lerpToWhite(tokAnsi, Math.min(1, tp), tokStr), ansi: "", skipPulse: true };
         }
-        return { text: tokStr, ansi: syntaxNumberAnsi };
+        return { text: tokStr, ansi: tokAnsi };
       }
       case "session-label": {
         return { text: "SESSION", ansi: accentAnsi };
@@ -1062,15 +1072,16 @@ class NerismaInputEditor extends CustomEditor {
     this._wasThinking = isThinking;
 
     const now = Date.now();
-    const accentAnsi = thm.getFgAnsi("accent");
-    const warningAnsi = thm.getFgAnsi("warning");
-    const successAnsi = thm.getFgAnsi("success");
-    const errorAnsi = thm.getFgAnsi("error");
-    const syntaxNumberAnsi = thm.getFgAnsi("syntaxNumber");
-    const syntaxCommentAnsi = thm.getFgAnsi("syntaxComment");
-    const dimAnsi = thm.getFgAnsi("dim");
+    const modeRef = thm.getFgAnsi("accent");
+    const accentAnsi = rgbFgAnsi(modeRef, 168, 200, 240);        // #A8C8F0 pastel cornflower
+    const warningAnsi = rgbFgAnsi(modeRef, 249, 226, 175);       // #F9E2AF pastel butter yellow
+    const successAnsi = rgbFgAnsi(modeRef, 166, 227, 161);       // #A6E3A1 pastel mint green
+    const errorAnsi = rgbFgAnsi(modeRef, 243, 139, 168);         // #F38BA8 pastel coral rose
+    const syntaxNumberAnsi = rgbFgAnsi(modeRef, 250, 179, 135);  // #FAB387 pastel peach
+    const syntaxCommentAnsi = rgbFgAnsi(modeRef, 180, 190, 210); // #B4BED2 pastel slate
+    const dimAnsi = rgbFgAnsi(modeRef, 156, 164, 184);           // #9CA4B8 pastel muted gray-lavender
 
-    const accent = (s: string) => thm.fg("accent", s); // used by borderColorFn fallback
+    const accent = (s: string) => `${accentAnsi}${s}\x1b[39m`; // used by borderColorFn fallback
 
     // ── Typing speed → bar whitening (INDEPENDENT of thinking) ──
     const configAnim = this.config.animations;
