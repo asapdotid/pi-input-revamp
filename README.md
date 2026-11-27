@@ -69,7 +69,7 @@ quadrants simply collapse into the border.
 | `thinking-level`   | Thinking level (hidden when `off`)                                |
 | `cwd`              | Working directory (`$HOME` collapsed to `~`)                      |
 | `git-branch`       | Current git branch (hidden outside a git repo)                    |
-| `git-status`       | Compact git status (`+staged ~modified -deleted ?untracked ↑ahead ↓behind`, hidden when clean) |
+| `git-status`       | Compact git status (`✓` when clean, or `+staged ~modified -deleted ?untracked ↑ahead ↓behind`) |
 | `duration`         | Elapsed session time (`5m 12s`)                                    |
 | `tools`            | Number of tools actually sent on the last request (`12 tools`)    |
 | `tok`              | Live token estimate of the text you're typing (`~42 tok`)         |
